@@ -1,0 +1,1609 @@
+%!TEX root = ../csuthesis_main.tex
+% \begin{appendixs} % 无章节编号
+\chapter{附录代码}
+%\begin{algorithm}[h]
+%    \caption{堆溢出检测算法}\label{alg:ovf}
+%    \begin{algorithmic}[1]
+%        \IF {$\beta \in \mathbb{N^{*}} \land \Delta_\beta = \Delta_{\beta - 1} \land \beta < S$}
+%            \STATE 正常写入
+%        \ELSIF {$\beta \in \mathbb{N^{*}} \land \Delta_\beta \neq \Delta_{\beta - 1} \land \beta \geq S$}
+%            \STATE 发生堆溢出
+%        \ENDIF
+%    \end{algorithmic}
+%\end{algorithm}
+\section{SARSA算法$pytorch$代码}
+\begin{lstlisting}
+import matplotlib.pyplot as plt
+import numpy as np
+from tqdm import tqdm  # tqdm是显示循环进度条的库
+
+
+class CliffWalkingEnv:
+    def __init__(self, ncol, nrow):
+        self.nrow = nrow
+        self.ncol = ncol
+        self.x = 0  # 记录当前智能体位置的横坐标
+        self.y = self.nrow - 1  # 记录当前智能体位置的纵坐标
+
+    def step(self, action):  # 外部调用这个函数来改变当前位置
+        # 4种动作, change[0]:上, change[1]:下, change[2]:左, change[3]:右。坐标系原点(0,0)
+        # 定义在左上角
+        change = [[0, -1], [0, 1], [-1, 0], [1, 0]]
+        self.x = min(self.ncol - 1, max(0, self.x + change[action][0]))
+        self.y = min(self.nrow - 1, max(0, self.y + change[action][1]))
+        next_state = self.y * self.ncol + self.x
+        reward = -1
+        done = False
+        if self.y == self.nrow - 1 and self.x > 0:  # 下一个位置在悬崖或者目标
+            done = True
+            if self.x != self.ncol - 1:
+                reward = -100
+        return next_state, reward, done
+
+    def reset(self):  # 回归初始状态,坐标轴原点在左上角
+        self.x = 0
+        self.y = self.nrow - 1
+        return self.y * self.ncol + self.x
+
+class Sarsa:
+    """ Sarsa算法 """
+    def __init__(self, ncol, nrow, epsilon, alpha, gamma, n_action=4):
+        self.Q_table = np.zeros([nrow * ncol, n_action])  # 初始化Q(s,a)表格
+        self.n_action = n_action  # 动作个数
+        self.alpha = alpha  # 学习率
+        self.gamma = gamma  # 折扣因子
+        self.epsilon = epsilon  # epsilon-贪婪策略中的参数
+
+    def take_action(self, state):  # 选取下一步的操作,具体实现为epsilon-贪婪
+        if np.random.random() < self.epsilon:
+            action = np.random.randint(self.n_action)
+        else:
+            action = np.argmax(self.Q_table[state])
+        return action
+
+    def best_action(self, state):  # 用于打印策略
+        Q_max = np.max(self.Q_table[state])
+        a = [0 for _ in range(self.n_action)]
+        for i in range(self.n_action):  # 若两个动作的价值一样,都会记录下来
+            if self.Q_table[state, i] == Q_max:
+                a[i] = 1
+        return a
+
+    def update(self, s0, a0, r, s1, a1):
+        td_error = r + self.gamma * self.Q_table[s1, a1] - self.Q_table[s0, a0]
+        self.Q_table[s0, a0] += self.alpha * td_error
+
+ncol = 12
+nrow = 4
+env = CliffWalkingEnv(ncol, nrow)
+np.random.seed(0)
+epsilon = 0.1
+alpha = 0.1
+gamma = 0.9
+agent = Sarsa(ncol, nrow, epsilon, alpha, gamma)
+num_episodes = 500  # 智能体在环境中运行的序列的数量
+
+return_list = []  # 记录每一条序列的回报
+for i in range(10):  # 显示10个进度条
+    # tqdm的进度条功能
+    with tqdm(total=int(num_episodes / 10), desc='Iteration %d' % i) as pbar:
+        for i_episode in range(int(num_episodes / 10)):  # 每个进度条的序列数
+            episode_return = 0
+            state = env.reset()
+            action = agent.take_action(state)
+            done = False
+            while not done:
+                next_state, reward, done = env.step(action)
+                next_action = agent.take_action(next_state)
+                episode_return += reward  # 这里回报的计算不进行折扣因子衰减
+                agent.update(state, action, reward, next_state, next_action)
+                state = next_state
+                action = next_action
+            return_list.append(episode_return)
+            if (i_episode + 1) % 10 == 0:  # 每10条序列打印一下这10条序列的平均回报
+                pbar.set_postfix({
+                    'episode':
+                    '%d' % (num_episodes / 10 * i + i_episode + 1),
+                    'return':
+                    '%.3f' % np.mean(return_list[-10:])
+                })
+            pbar.update(1)
+
+episodes_list = list(range(len(return_list)))
+plt.plot(episodes_list, return_list)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('Sarsa on {}'.format('Cliff Walking'))
+plt.show()
+\end{lstlisting}
+\section{Q-learning算法$pytorch$代码}
+\begin{lstlisting}
+class QLearning:
+    """ Q-learning算法 """
+    def __init__(self, ncol, nrow, epsilon, alpha, gamma, n_action=4):
+        self.Q_table = np.zeros([nrow * ncol, n_action])  # 初始化Q(s,a)表格
+        self.n_action = n_action  # 动作个数
+        self.alpha = alpha  # 学习率
+        self.gamma = gamma  # 折扣因子
+        self.epsilon = epsilon  # epsilon-贪婪策略中的参数
+
+    def take_action(self, state):  #选取下一步的操作
+        if np.random.random() < self.epsilon:
+            action = np.random.randint(self.n_action)
+        else:
+            action = np.argmax(self.Q_table[state])
+        return action
+
+    def best_action(self, state):  # 用于打印策略
+        Q_max = np.max(self.Q_table[state])
+        a = [0 for _ in range(self.n_action)]
+        for i in range(self.n_action):
+            if self.Q_table[state, i] == Q_max:
+                a[i] = 1
+        return a
+
+    def update(self, s0, a0, r, s1):
+        td_error = r + self.gamma * self.Q_table[s1].max(
+        ) - self.Q_table[s0, a0]
+        self.Q_table[s0, a0] += self.alpha * td_error
+
+
+np.random.seed(0)
+epsilon = 0.1
+alpha = 0.1
+gamma = 0.9
+agent = QLearning(ncol, nrow, epsilon, alpha, gamma)
+num_episodes = 500  # 智能体在环境中运行的序列的数量
+
+return_list = []  # 记录每一条序列的回报
+for i in range(10):  # 显示10个进度条
+    # tqdm的进度条功能
+    with tqdm(total=int(num_episodes / 10), desc='Iteration %d' % i) as pbar:
+        for i_episode in range(int(num_episodes / 10)):  # 每个进度条的序列数
+            episode_return = 0
+            state = env.reset()
+            done = False
+            while not done:
+                action = agent.take_action(state)
+                next_state, reward, done = env.step(action)
+                episode_return += reward  # 这里回报的计算不进行折扣因子衰减
+                agent.update(state, action, reward, next_state)
+                state = next_state
+            return_list.append(episode_return)
+            if (i_episode + 1) % 10 == 0:  # 每10条序列打印一下这10条序列的平均回报
+                pbar.set_postfix({
+                    'episode':
+                    '%d' % (num_episodes / 10 * i + i_episode + 1),
+                    'return':
+                    '%.3f' % np.mean(return_list[-10:])
+                })
+            pbar.update(1)
+
+episodes_list = list(range(len(return_list)))
+plt.plot(episodes_list, return_list)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('Q-learning on {}'.format('Cliff Walking'))
+plt.show()
+
+action_meaning = ['^', 'v', '<', '>']
+print('Q-learning算法最终收敛得到的策略为：')
+print_agent(agent, env, action_meaning, list(range(37, 47)), [47])
+\end{lstlisting}
+
+\section{DQN算法$pytorch$代码}
+\begin{lstlisting}
+import random
+import gym
+import numpy as np
+import collections
+from tqdm import tqdm
+import torch
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import rl_utils
+
+class ReplayBuffer:
+    ''' 经验回放池 '''
+    def __init__(self, capacity):
+        self.buffer = collections.deque(maxlen=capacity)  # 队列,先进先出
+
+    def add(self, state, action, reward, next_state, done):  # 将数据加入buffer
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size):  # 从buffer中采样数据,数量为batch_size
+        transitions = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = zip(*transitions)
+        return np.array(state), action, reward, np.array(next_state), done
+
+    def size(self):  # 目前buffer中数据的数量
+        return len(self.buffer)
+
+class Qnet(torch.nn.Module):
+    ''' 只有一层隐藏层的Q网络 '''
+    def __init__(self, state_dim, hidden_dim, action_dim):
+        super(Qnet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))  # 隐藏层使用ReLU激活函数
+        return self.fc2(x)
+
+class DQN:
+    ''' DQN算法 '''
+    def __init__(self, state_dim, hidden_dim, action_dim, learning_rate, gamma,
+                 epsilon, target_update, device):
+        self.action_dim = action_dim
+        self.q_net = Qnet(state_dim, hidden_dim,
+                          self.action_dim).to(device)  # Q网络
+        # 目标网络
+        self.target_q_net = Qnet(state_dim, hidden_dim,
+                                 self.action_dim).to(device)
+        # 使用Adam优化器
+        self.optimizer = torch.optim.Adam(self.q_net.parameters(),
+                                          lr=learning_rate)
+        self.gamma = gamma  # 折扣因子
+        self.epsilon = epsilon  # epsilon-贪婪策略
+        self.target_update = target_update  # 目标网络更新频率
+        self.count = 0  # 计数器,记录更新次数
+        self.device = device
+
+    def take_action(self, state):  # epsilon-贪婪策略采取动作
+        if np.random.random() < self.epsilon:
+            action = np.random.randint(self.action_dim)
+        else:
+            state = torch.tensor([state], dtype=torch.float).to(self.device)
+            action = self.q_net(state).argmax().item()
+        return action
+
+    def update(self, transition_dict):
+        states = torch.tensor(transition_dict['states'],
+                              dtype=torch.float).to(self.device)
+        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(
+            self.device)
+        rewards = torch.tensor(transition_dict['rewards'],
+                               dtype=torch.float).view(-1, 1).to(self.device)
+        next_states = torch.tensor(transition_dict['next_states'],
+                                   dtype=torch.float).to(self.device)
+        dones = torch.tensor(transition_dict['dones'],
+                             dtype=torch.float).view(-1, 1).to(self.device)
+
+        q_values = self.q_net(states).gather(1, actions)  # Q值
+        # 下个状态的最大Q值
+        max_next_q_values = self.target_q_net(next_states).max(1)[0].view(
+            -1, 1)
+        q_targets = rewards + self.gamma * max_next_q_values * (1 - dones
+                                                                )  # TD误差目标
+        dqn_loss = torch.mean(F.mse_loss(q_values, q_targets))  # 均方误差损失函数
+        self.optimizer.zero_grad()  # PyTorch中默认梯度会累积,这里需要显式将梯度置为0
+        dqn_loss.backward()  # 反向传播更新参数
+        self.optimizer.step()
+
+        if self.count % self.target_update == 0:
+            self.target_q_net.load_state_dict(
+                self.q_net.state_dict())  # 更新目标网络
+        self.count += 1
+
+lr = 2e-3
+num_episodes = 500
+hidden_dim = 128
+gamma = 0.98
+epsilon = 0.01
+target_update = 10
+buffer_size = 10000
+minimal_size = 500
+batch_size = 64
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
+    "cpu")
+
+env_name = 'CartPole-v0'
+env = gym.make(env_name)
+random.seed(0)
+np.random.seed(0)
+env.seed(0)
+torch.manual_seed(0)
+replay_buffer = ReplayBuffer(buffer_size)
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.n
+agent = DQN(state_dim, hidden_dim, action_dim, lr, gamma, epsilon,
+            target_update, device)
+
+return_list = []
+for i in range(10):
+    with tqdm(total=int(num_episodes / 10), desc='Iteration %d' % i) as pbar:
+        for i_episode in range(int(num_episodes / 10)):
+            episode_return = 0
+            state = env.reset()
+            done = False
+            while not done:
+                action = agent.take_action(state)
+                next_state, reward, done, _ = env.step(action)
+                replay_buffer.add(state, action, reward, next_state, done)
+                state = next_state
+                episode_return += reward
+                # 当buffer数据的数量超过一定值后,才进行Q网络训练
+                if replay_buffer.size() > minimal_size:
+                    b_s, b_a, b_r, b_ns, b_d = replay_buffer.sample(batch_size)
+                    transition_dict = {
+                        'states': b_s,
+                        'actions': b_a,
+                        'next_states': b_ns,
+                        'rewards': b_r,
+                        'dones': b_d
+                    }
+                    agent.update(transition_dict)
+            return_list.append(episode_return)
+            if (i_episode + 1) % 10 == 0:
+                pbar.set_postfix({
+                    'episode':
+                    '%d' % (num_episodes / 10 * i + i_episode + 1),
+                    'return':
+                    '%.3f' % np.mean(return_list[-10:])
+                })
+            pbar.update(1)
+\end{lstlisting}
+
+\section{Actor-Critic算法$pytorch$代码}
+\begin{lstlisting}
+import gym
+import torch
+import torch.nn.functional as F
+import numpy as np
+import matplotlib.pyplot as plt
+import rl_utils
+
+class PolicyNet(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim, action_dim):
+        super(PolicyNet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        return F.softmax(self.fc2(x), dim=1)
+
+class ValueNet(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim):
+        super(ValueNet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+class ActorCritic:
+    def __init__(self, state_dim, hidden_dim, action_dim, actor_lr, critic_lr,
+                 gamma, device):
+        # 策略网络
+        self.actor = PolicyNet(state_dim, hidden_dim, action_dim).to(device)
+        self.critic = ValueNet(state_dim, hidden_dim).to(device)  # 价值网络
+        # 策略网络优化器
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
+                                                lr=actor_lr)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+                                                 lr=critic_lr)  # 价值网络优化器
+        self.gamma = gamma
+        self.device = device
+
+    def take_action(self, state):
+        state = torch.tensor([state], dtype=torch.float).to(self.device)
+        probs = self.actor(state)
+        action_dist = torch.distributions.Categorical(probs)
+        action = action_dist.sample()
+        return action.item()
+
+    def update(self, transition_dict):
+        states = torch.tensor(transition_dict['states'],
+                              dtype=torch.float).to(self.device)
+        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(
+            self.device)
+        rewards = torch.tensor(transition_dict['rewards'],
+                               dtype=torch.float).view(-1, 1).to(self.device)
+        next_states = torch.tensor(transition_dict['next_states'],
+                                   dtype=torch.float).to(self.device)
+        dones = torch.tensor(transition_dict['dones'],
+                             dtype=torch.float).view(-1, 1).to(self.device)
+
+        # 时序差分目标
+        td_target = rewards + self.gamma * self.critic(next_states) * (1 -
+                                                                       dones)
+        td_delta = td_target - self.critic(states)  # 时序差分误差
+        log_probs = torch.log(self.actor(states).gather(1, actions))
+        actor_loss = torch.mean(-log_probs * td_delta.detach())
+        # 均方误差损失函数
+        critic_loss = torch.mean(
+            F.mse_loss(self.critic(states), td_target.detach()))
+        self.actor_optimizer.zero_grad()
+        self.critic_optimizer.zero_grad()
+        actor_loss.backward()  # 计算策略网络的梯度
+        critic_loss.backward()  # 计算价值网络的梯度
+        self.actor_optimizer.step()  # 更新策略网络的参数
+        self.critic_optimizer.step()  # 更新价值网络的参数
+
+actor_lr = 1e-3
+critic_lr = 1e-2
+num_episodes = 1000
+hidden_dim = 128
+gamma = 0.98
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
+    "cpu")
+
+env_name = 'CartPole-v0'
+env = gym.make(env_name)
+env.seed(0)
+torch.manual_seed(0)
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.n
+agent = ActorCritic(state_dim, hidden_dim, action_dim, actor_lr, critic_lr,
+                    gamma, device)
+
+return_list = rl_utils.train_on_policy_agent(env, agent, num_episodes)
+
+episodes_list = list(range(len(return_list)))
+plt.plot(episodes_list, return_list)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('Actor-Critic on {}'.format(env_name))
+plt.show()
+
+mv_return = rl_utils.moving_average(return_list, 9)
+plt.plot(episodes_list, mv_return)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('Actor-Critic on {}'.format(env_name))
+plt.show()
+\end{lstlisting}
+
+\section{TRPO算法$pytorch$代码}
+\begin{lstlisting}
+import torch
+import numpy as np
+import gym
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+import rl_utils
+import copy
+
+def compute_advantage(gamma, lmbda, td_delta):
+    td_delta = td_delta.detach().numpy()
+    advantage_list = []
+    advantage = 0.0
+    for delta in td_delta[::-1]:
+        advantage = gamma * lmbda * advantage + delta
+        advantage_list.append(advantage)
+    advantage_list.reverse()
+    return torch.tensor(advantage_list, dtype=torch.float)
+
+class PolicyNet(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim, action_dim):
+        super(PolicyNet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        return F.softmax(self.fc2(x), dim=1)
+
+
+class ValueNet(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim):
+        super(ValueNet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+
+class TRPO:
+    """ TRPO算法 """
+    def __init__(self, hidden_dim, state_space, action_space, lmbda,
+                 kl_constraint, alpha, critic_lr, gamma, device):
+        state_dim = state_space.shape[0]
+        action_dim = action_space.n
+        # 策略网络参数不需要优化器更新
+        self.actor = PolicyNet(state_dim, hidden_dim, action_dim).to(device)
+        self.critic = ValueNet(state_dim, hidden_dim).to(device)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+                                                 lr=critic_lr)
+        self.gamma = gamma
+        self.lmbda = lmbda  # GAE参数
+        self.kl_constraint = kl_constraint  # KL距离最大限制
+        self.alpha = alpha  # 线性搜索参数
+        self.device = device
+
+    def take_action(self, state):
+        state = torch.tensor([state], dtype=torch.float).to(self.device)
+        probs = self.actor(state)
+        action_dist = torch.distributions.Categorical(probs)
+        action = action_dist.sample()
+        return action.item()
+
+    def hessian_matrix_vector_product(self, states, old_action_dists, vector):
+        # 计算黑塞矩阵和一个向量的乘积
+        new_action_dists = torch.distributions.Categorical(self.actor(states))
+        kl = torch.mean(
+            torch.distributions.kl.kl_divergence(old_action_dists,
+                                                 new_action_dists))  # 计算平均KL距离
+        kl_grad = torch.autograd.grad(kl,
+                                      self.actor.parameters(),
+                                      create_graph=True)
+        kl_grad_vector = torch.cat([grad.view(-1) for grad in kl_grad])
+        # KL距离的梯度先和向量进行点积运算
+        kl_grad_vector_product = torch.dot(kl_grad_vector, vector)
+        grad2 = torch.autograd.grad(kl_grad_vector_product,
+                                    self.actor.parameters())
+        grad2_vector = torch.cat([grad.view(-1) for grad in grad2])
+        return grad2_vector
+
+    def conjugate_gradient(self, grad, states, old_action_dists):  # 共轭梯度法求解方程
+        x = torch.zeros_like(grad)
+        r = grad.clone()
+        p = grad.clone()
+        rdotr = torch.dot(r, r)
+        for i in range(10):  # 共轭梯度主循环
+            Hp = self.hessian_matrix_vector_product(states, old_action_dists,
+                                                    p)
+            alpha = rdotr / torch.dot(p, Hp)
+            x += alpha * p
+            r -= alpha * Hp
+            new_rdotr = torch.dot(r, r)
+            if new_rdotr < 1e-10:
+                break
+            beta = new_rdotr / rdotr
+            p = r + beta * p
+            rdotr = new_rdotr
+        return x
+
+    def compute_surrogate_obj(self, states, actions, advantage, old_log_probs,
+                              actor):  # 计算策略目标
+        log_probs = torch.log(actor(states).gather(1, actions))
+        ratio = torch.exp(log_probs - old_log_probs)
+        return torch.mean(ratio * advantage)
+
+    def line_search(self, states, actions, advantage, old_log_probs,
+                    old_action_dists, max_vec):  # 线性搜索
+        old_para = torch.nn.utils.convert_parameters.parameters_to_vector(
+            self.actor.parameters())
+        old_obj = self.compute_surrogate_obj(states, actions, advantage,
+                                             old_log_probs, self.actor)
+        for i in range(15):  # 线性搜索主循环
+            coef = self.alpha**i
+            new_para = old_para + coef * max_vec
+            new_actor = copy.deepcopy(self.actor)
+            torch.nn.utils.convert_parameters.vector_to_parameters(
+                new_para, new_actor.parameters())
+            new_action_dists = torch.distributions.Categorical(
+                new_actor(states))
+            kl_div = torch.mean(
+                torch.distributions.kl.kl_divergence(old_action_dists,
+                                                     new_action_dists))
+            new_obj = self.compute_surrogate_obj(states, actions, advantage,
+                                                 old_log_probs, new_actor)
+            if new_obj > old_obj and kl_div < self.kl_constraint:
+                return new_para
+        return old_para
+
+    def policy_learn(self, states, actions, old_action_dists, old_log_probs,
+                     advantage):  # 更新策略函数
+        surrogate_obj = self.compute_surrogate_obj(states, actions, advantage,
+                                                   old_log_probs, self.actor)
+        grads = torch.autograd.grad(surrogate_obj, self.actor.parameters())
+        obj_grad = torch.cat([grad.view(-1) for grad in grads]).detach()
+        # 用共轭梯度法计算x = H^(-1)g
+        descent_direction = self.conjugate_gradient(obj_grad, states,
+                                                    old_action_dists)
+
+        Hd = self.hessian_matrix_vector_product(states, old_action_dists,
+                                                descent_direction)
+        max_coef = torch.sqrt(2 * self.kl_constraint /
+                              (torch.dot(descent_direction, Hd) + 1e-8))
+        new_para = self.line_search(states, actions, advantage, old_log_probs,
+                                    old_action_dists,
+                                    descent_direction * max_coef)  # 线性搜索
+        torch.nn.utils.convert_parameters.vector_to_parameters(
+            new_para, self.actor.parameters())  # 用线性搜索后的参数更新策略
+
+    def update(self, transition_dict):
+        states = torch.tensor(transition_dict['states'],
+                              dtype=torch.float).to(self.device)
+        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(
+            self.device)
+        rewards = torch.tensor(transition_dict['rewards'],
+                               dtype=torch.float).view(-1, 1).to(self.device)
+        next_states = torch.tensor(transition_dict['next_states'],
+                                   dtype=torch.float).to(self.device)
+        dones = torch.tensor(transition_dict['dones'],
+                             dtype=torch.float).view(-1, 1).to(self.device)
+        td_target = rewards + self.gamma * self.critic(next_states) * (1 -
+                                                                       dones)
+        td_delta = td_target - self.critic(states)
+        advantage = compute_advantage(self.gamma, self.lmbda,
+                                      td_delta.cpu()).to(self.device)
+        old_log_probs = torch.log(self.actor(states).gather(1,
+                                                            actions)).detach()
+        old_action_dists = torch.distributions.Categorical(
+            self.actor(states).detach())
+        critic_loss = torch.mean(
+            F.mse_loss(self.critic(states), td_target.detach()))
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()  # 更新价值函数
+        # 更新策略函数
+        self.policy_learn(states, actions, old_action_dists, old_log_probs,
+                          advantage)
+
+num_episodes = 500
+hidden_dim = 128
+gamma = 0.98
+lmbda = 0.95
+critic_lr = 1e-2
+kl_constraint = 0.0005
+alpha = 0.5
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
+    "cpu")
+
+env_name = 'CartPole-v0'
+env = gym.make(env_name)
+env.seed(0)
+torch.manual_seed(0)
+agent = TRPO(hidden_dim, env.observation_space, env.action_space, lmbda,
+             kl_constraint, alpha, critic_lr, gamma, device)
+return_list = rl_utils.train_on_policy_agent(env, agent, num_episodes)
+
+episodes_list = list(range(len(return_list)))
+plt.plot(episodes_list, return_list)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('TRPO on {}'.format(env_name))
+plt.show()
+
+mv_return = rl_utils.moving_average(return_list, 9)
+plt.plot(episodes_list, mv_return)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('TRPO on {}'.format(env_name))
+plt.show()
+\end{lstlisting}
+
+\section{PPO算法$pytorch$代码}
+\begin{lstlisting}
+import gym
+import torch
+import torch.nn.functional as F
+import numpy as np
+import matplotlib.pyplot as plt
+import rl_utils
+
+
+class PolicyNet(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim, action_dim):
+        super(PolicyNet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        return F.softmax(self.fc2(x), dim=1)
+
+
+class ValueNet(torch.nn.Module):
+    def __init__(self, state_dim, hidden_dim):
+        super(ValueNet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+
+class PPO:
+    ''' PPO算法,采用截断方式 '''
+    def __init__(self, state_dim, hidden_dim, action_dim, actor_lr, critic_lr,
+                 lmbda, epochs, eps, gamma, device):
+        self.actor = PolicyNet(state_dim, hidden_dim, action_dim).to(device)
+        self.critic = ValueNet(state_dim, hidden_dim).to(device)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
+                                                lr=actor_lr)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+                                                 lr=critic_lr)
+        self.gamma = gamma
+        self.lmbda = lmbda
+        self.epochs = epochs  # 一条序列的数据用来训练轮数
+        self.eps = eps  # PPO中截断范围的参数
+        self.device = device
+
+    def take_action(self, state):
+        state = torch.tensor([state], dtype=torch.float).to(self.device)
+        probs = self.actor(state)
+        action_dist = torch.distributions.Categorical(probs)
+        action = action_dist.sample()
+        return action.item()
+
+    def update(self, transition_dict):
+        states = torch.tensor(transition_dict['states'],
+                              dtype=torch.float).to(self.device)
+        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(
+            self.device)
+        rewards = torch.tensor(transition_dict['rewards'],
+                               dtype=torch.float).view(-1, 1).to(self.device)
+        next_states = torch.tensor(transition_dict['next_states'],
+                                   dtype=torch.float).to(self.device)
+        dones = torch.tensor(transition_dict['dones'],
+                             dtype=torch.float).view(-1, 1).to(self.device)
+        td_target = rewards + self.gamma * self.critic(next_states) * (1 -
+                                                                       dones)
+        td_delta = td_target - self.critic(states)
+        advantage = rl_utils.compute_advantage(self.gamma, self.lmbda,
+                                               td_delta.cpu()).to(self.device)
+        old_log_probs = torch.log(self.actor(states).gather(1,
+                                                            actions)).detach()
+
+        for _ in range(self.epochs):
+            log_probs = torch.log(self.actor(states).gather(1, actions))
+            ratio = torch.exp(log_probs - old_log_probs)
+            surr1 = ratio * advantage
+            surr2 = torch.clamp(ratio, 1 - self.eps,
+                                1 + self.eps) * advantage  # 截断
+            actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
+            critic_loss = torch.mean(
+                F.mse_loss(self.critic(states), td_target.detach()))
+            self.actor_optimizer.zero_grad()
+            self.critic_optimizer.zero_grad()
+            actor_loss.backward()
+            critic_loss.backward()
+            self.actor_optimizer.step()
+            self.critic_optimizer.step()
+
+actor_lr = 1e-3
+critic_lr = 1e-2
+num_episodes = 500
+hidden_dim = 128
+gamma = 0.98
+lmbda = 0.95
+epochs = 10
+eps = 0.2
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
+    "cpu")
+
+env_name = 'CartPole-v0'
+env = gym.make(env_name)
+env.seed(0)
+torch.manual_seed(0)
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.n
+agent = PPO(state_dim, hidden_dim, action_dim, actor_lr, critic_lr, lmbda,
+            epochs, eps, gamma, device)
+
+return_list = rl_utils.train_on_policy_agent(env, agent, num_episodes)
+
+episodes_list = list(range(len(return_list)))
+plt.plot(episodes_list, return_list)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('PPO on {}'.format(env_name))
+plt.show()
+
+mv_return = rl_utils.moving_average(return_list, 9)
+plt.plot(episodes_list, mv_return)
+plt.xlabel('Episodes')
+plt.ylabel('Returns')
+plt.title('PPO on {}'.format(env_name))
+plt.show()
+\end{lstlisting}
+
+\section{共轭梯度法解HMM模型$python$代码}
+\begin{lstlisting}
+import numpy as np
+from matplotlib import pyplot as plt
+import time
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+class NCG():
+    def __init__(self):
+        # 给定相关种类参数：
+        self.N1 = 4 # 观测状态种数
+        self.N2 = 4 # 隐状态种数
+        self.Y_dim = 3
+        self.W_dim = 4
+        # 模型参数：
+        self.sum_dim = self.N2*self.N1 + self.N2*self.N1*self.Y_dim + self.N2 + self.N2*self.W_dim
+        self.sigma0 = np.random.normal(0, 1, (self.sum_dim, 1)) # 初始参数服从N(0,1)的正态分布
+        # self.sigma0 = np.ones((self.sum_dim, 1))*0.21
+        # 参数分割：
+        self.mu = self.sigma0[:self.N2 * self.N1, 0].reshape((self.N1, self.N2))
+        beta = self.sigma0[self.N2 * self.N1:self.N2 * self.N1 + self.N2 * self.N1 * self.Y_dim, 0]
+        self.beta = beta.reshape((self.N1, self.N2, self.Y_dim))
+        N1 = self.N2 * self.N1 + self.N2 * self.N1 * self.Y_dim
+        N2 = self.N2 * self.N1 + self.N2 * self.N1 * self.Y_dim + self.N2
+        self.gamma = self.sigma0[N1:N2, 0].reshape((self.N2, 1))
+        self.alpha = self.sigma0[N2:, 0].reshape((self.W_dim, self.N2))
+        # self.Pij = np.random.uniform(0, 1, (self.N1, self.N1))
+        # 需要给定下面三个参数：
+        self.W = np.array([[31.167], [34.125], [26.667], [27.271]])
+        Pij = pd.read_excel('./4观测转换频率.xlsx', sheet_name="Sheet1", header=None)
+        self.Pij = Pij.values
+        print(self.Pij, self.Pij.shape)
+        Y_all = pd.read_excel('./4观测转换频率 - 副本.xlsx', sheet_name="Sheet1", header=None)
+        self.Y_all = Y_all.values
+        print(self.Y_all, self.Y_all.shape)
+        # self.Pij[0, 0] = 1
+        self.Pij = self.Pij / self.Pij.max(axis=1) # 行和置为1
+        # 算法参数：
+        self.kmax = 200
+        self.eps = 1e-6
+
+    # P(Yi, Yj)概率计算函数
+    def funPij(self, mu, beta, gamma, alpha, Yi, Yj, W, i, j):
+        Pij = 0
+        for K1 in range(self.N2):
+            for K2 in range(self.N2):
+                P_Sk1_Yi_1 = np.exp(mu[i, K1] - beta[i, K1, :].reshape((1, self.Y_dim))@Yi)
+                P_Sk1_Yi_2 = 0
+                for j1 in range(self.N1):
+                    P_Sk1_Yi_2 = P_Sk1_Yi_2+np.exp(mu[j1, K1]-beta[j1, K1, :].reshape((1,self.Y_dim))@self.Y_all[j1,:])
+                P_Sk1_Yi = P_Sk1_Yi_1 / P_Sk1_Yi_2
+
+                P_Sk2_Sk1_1 = np.exp(gamma[K2, 0] - alpha[:, K1].T@W)
+                P_Sk2_Sk1_2 = 0
+                for j1 in range(self.N2):
+                    P_Sk2_Sk1_2 = P_Sk2_Sk1_2 + np.exp(gamma[j1, 0] - alpha[:, K1].T @ W)
+                P_Sk2_Sk1 = P_Sk2_Sk1_1 / P_Sk2_Sk1_2
+
+                P_Sk2_Yi_1 = np.exp(mu[j, K2] - beta[j, K2, :].reshape((1, self.Y_dim)) @ Yj)
+                P_Sk2_Yi_2 = 0
+                for j1 in range(self.N1):
+                    P_Sk2_Yi_2 = P_Sk2_Yi_2+np.exp(mu[j1, K2]-beta[j1, K2, :].reshape((1,self.Y_dim))@self.Y_all[j1,:])
+                P_Sk2_Yi = P_Sk2_Yi_1 / P_Sk2_Yi_2
+
+                Pij = Pij + P_Sk1_Yi*P_Sk2_Sk1*P_Sk2_Yi
+        return Pij
+
+    def P_Y_S_fun(self, mu, beta, gamma, alpha):
+        P_Y_S = np.zeros((self.N1, self.N2))
+        for i in range(self.N1):
+            for j in range(self.N2):
+                P_Yi_Sj_1 = np.exp(mu[i, j] - beta[i, j, :].reshape((1, self.Y_dim)) @ self.Y_all[i, :])
+                P_Yi_Sj_2 = 0
+                for j1 in range(self.N1):
+                    P_Yi_Sj_2 += np.exp(mu[j1, j] - beta[j1, j, :].reshape((1, self.Y_dim)) @ self.Y_all[j1, :])
+                P_Y_S[i, j] = P_Yi_Sj_1 / P_Yi_Sj_2
+        return P_Y_S
+
+    # P(Yi, Yj)梯度计算函数
+    def gfunPij(self, mu, beta, gamma, alpha, Yi, Yj, W, i, j):
+        g_mu = mu - mu
+        g_beta = beta - beta
+        g_gamma = gamma - gamma
+        g_alpha = alpha - alpha
+
+        for K1 in range(self.N2):
+            for K2 in range(self.N2):
+                P1 = np.exp(mu[i, K1] - beta[i, K1, :].reshape((1, self.Y_dim))@Yi)
+                P2 = 0
+                for j1 in range(self.N1):
+                    P2 = P2 + np.exp(mu[j1, K1] - beta[j1, K1, :].reshape((1, self.Y_dim)) @ self.Y_all[j1, :])
+                P_Sk1_Yi = P1 * (P2-P1) / P2 / P2
+
+                P_Sk2_Sk1_1 = np.exp(gamma[K2, 0] - alpha[:, K1].T @ W)
+                P_Sk2_Sk1_2 = 0
+                for j1 in range(self.N2):
+                    P_Sk2_Sk1_2 = P_Sk2_Sk1_2 + np.exp(gamma[j1, 0] - alpha[:, K1].T @ W)
+                P_Sk2_Sk1 = P_Sk2_Sk1_1 / P_Sk2_Sk1_2
+
+                P_Sk2_Yj_1 = np.exp(mu[j, K2] - beta[j, K2, :].reshape((1, self.Y_dim)) @ Yj)
+                P_Sk2_Yj_2 = 0
+                for j1 in range(self.N1):
+                    P_Sk2_Yj_2 = P_Sk2_Yj_2+np.exp(mu[j1, K2]-beta[j1, K2, :].reshape((1,self.Y_dim))@self.Y_all[j1,:])
+                P_Sk2_Yj = P_Sk2_Yj_1 / P_Sk2_Yj_2
+
+                for j1 in range(self.N1):
+                    if j1 == i:
+                        g_mu[i, K1] = g_mu[i, K1] + P_Sk1_Yi * P_Sk2_Sk1 * P_Sk2_Yj
+                        g_beta[i, K1, :] = g_beta[i, K1, :] + (-Yi)*P_Sk1_Yi * P_Sk2_Sk1 * P_Sk2_Yj
+                    else:
+                        P3 = np.exp(mu[j1, K1] - beta[j1, K1, :].reshape((1, self.Y_dim))@self.Y_all[j1, :])
+                        P8 = (-P3*P1/P2/P2) * P_Sk2_Sk1 * P_Sk2_Yj
+                        g_mu[j1, K1] = g_mu[j1, K1] + P8
+                        g_beta[j1, K1, :] = g_beta[j1, K1, :] + (self.Y_all[j1, :])*(P3*P1/P2/P2)*P_Sk2_Sk1*P_Sk2_Yj
+
+                P_Sk2_Yj = P_Sk2_Yj_1 * (P_Sk2_Yj_2-P_Sk2_Yj_1) / P_Sk2_Yj_2 / P_Sk2_Yj_2
+                P_Sk1_Yi = P1 / P2
+
+                for j1 in range(self.N1):
+                    if j1 == j:
+                        g_mu[j, K2] = g_mu[j, K2] + P_Sk1_Yi * P_Sk2_Sk1 * P_Sk2_Yj
+                        g_beta[j, K2, :] = g_beta[j, K2, :] + (-Yj)*P_Sk1_Yi * P_Sk2_Sk1 * P_Sk2_Yj
+                    else:
+                        P3 = np.exp(mu[j1, K2] - beta[j1, K2, :].reshape((1, self.Y_dim))@self.Y_all[j1, :])
+                        P8 = P_Sk1_Yi * P_Sk2_Sk1 * (-P3*P_Sk2_Yj_1/P_Sk2_Yj_2/P_Sk2_Yj_2)
+                        g_mu[j1, K2] = g_mu[j1, K2] + P8
+                        g_beta[j1, K2, :] = g_beta[j1, K2, :] + (-self.Y_all[j1, :])*P8
+
+                P_Sk2_Yj = P_Sk2_Yj_1 / P_Sk2_Yj_2
+                P_Sk2_Sk1 = P_Sk2_Sk1_1 * (P_Sk2_Sk1_2-P_Sk2_Sk1_1) / P_Sk2_Sk1_2 / P_Sk2_Sk1_2
+
+                for j1 in range(self.N2):
+                    if j1 == K2:
+                        g_gamma[K2, 0] = g_gamma[K2, 0] + P_Sk1_Yi * P_Sk2_Sk1 * P_Sk2_Yj
+                        P6 = W - W
+                        for j2 in range(self.N2):
+                            P6 = P6 + (-W)*np.exp(gamma[j2, 0] - alpha[:, K1].T @ W)
+                        P7 = ((-W) * P_Sk2_Sk1_1) @ P_Sk2_Sk1_2
+                        P6 = P6 @ P_Sk2_Sk1_1
+                        g_alpha[:, K1] = g_alpha[:, K1] + ((P7-P6) / P_Sk2_Sk1_2[0] / P_Sk2_Sk1_2[0])*P_Sk1_Yi*P_Sk2_Yj
+                    else:
+                        P4 = np.exp(gamma[j1, 0] - alpha[:, K1].T @ W)
+                        P5 = (-P4 * P_Sk2_Sk1_1 / P_Sk2_Sk1_2 / P_Sk2_Sk1_2) * P_Sk1_Yi * P_Sk2_Yj
+                        g_gamma[j1, 0] = g_gamma[j1, 0] + P5
+        return g_mu, g_beta, g_gamma, g_alpha
+
+    # 参数粘贴函数
+    def SigmaShape(self, mu, beta, gamma, alpha):
+        sigma1 = mu.reshape(-1, 1)
+        sigma2 = beta.reshape(-1, 1)
+        sigma3 = gamma.reshape(-1, 1)
+        sigma4 = alpha.reshape(-1, 1)
+        return np.concatenate((sigma1, sigma2, sigma3, sigma4), axis=0)
+
+    # 参数分割函数
+    def SigmaReshape(self, sigma):
+        mu = sigma[:self.N2 * self.N1, 0].reshape((self.N1, self.N2))
+        beta = sigma[self.N2 * self.N1:self.N2 * self.N1 + self.N2 * self.N1 * self.Y_dim, 0]
+        beta = beta.reshape((self.N1, self.N2, self.Y_dim))
+        N1 = self.N2 * self.N1 + self.N2 * self.N1 * self.Y_dim
+        N2 = self.N2 * self.N1 + self.N2 * self.N1 * self.Y_dim + self.N2
+        gamma = sigma[N1:N2, 0].reshape((self.N2, 1))
+        alpha = sigma[N2:, 0].reshape((self.W_dim, self.N2))
+        return mu, beta, gamma, alpha
+
+    # 损失函数（算法目标函数）
+    def fun(self, sigma, Y, W, Pij):
+        mu, beta, gamma, alpha = self.SigmaReshape(sigma)
+        loss = 0
+        for i in range(self.N1):
+            for j in range(self.N1):
+                pij = self.funPij(mu, beta, gamma, alpha, Y[i, :].T, Y[j, :].T, W, i, j)
+                loss = loss + np.power(pij-Pij[i, j], 2)
+        return loss
+
+    # 损失函数梯度
+    def gfun(self, sigma, Y, W, Pij):
+        mu, beta, gamma, alpha = self.SigmaReshape(sigma)
+        g_mu = self.mu - self.mu
+        # print(g_mu)
+        g_beta = self.beta - self.beta
+        g_gamma = self.gamma - self.gamma
+        g_alpha = self.alpha - self.alpha
+        for i in range(self.N1):
+            for j in range(self.N1):
+                g_mu_n, g_beta_n, g_gamma_n, g_alpha_n = self.gfunPij(mu,beta,gamma,alpha,Y[i,:].T, Y[j, :].T, W, i, j)
+                pij = self.funPij(mu, beta, gamma, alpha, Y[i, :].T, Y[j, :].T, W, i, j)
+                g_mu = g_mu + 2*(pij-Pij[i, j])*g_mu_n
+                g_beta = g_beta + 2*(pij-Pij[i, j])*g_beta_n
+                g_gamma = g_gamma + 2*(pij-Pij[i, j])*g_gamma_n
+                g_alpha = g_alpha + 2*(pij-Pij[i, j])*g_alpha_n
+        sigma = self.SigmaShape(g_mu, g_beta, g_gamma, g_alpha)
+        return sigma
+
+    # nonlinear_cg--FR g_k^Tg_k/(g_{k-1}^Tg_{k-1})
+    def FR(self, g1, g2):
+        print("调用FR公式")
+        return np.dot(g2.T, g2) / np.dot(g1.T, g1)
+
+    # nonlinear_cg--PR
+    def PR(self, g1, g2):
+        print("调用PR公式")
+        return max(0, np.dot(g2.T, (g2 - g1)) / (np.dot(g1.T, g1)))
+
+    # x 当前迭代点 d 迭代方向 g当前迭代点的梯度 f 目标函数在当前点的函数值
+    # Armijo步长规则
+    def Armijo(self, sigma0, Y, W, Pij, d, g, f):
+        alpha1 = 1
+        sigma = 1e-3
+        print("调用Armijo步长规则")
+        for i in range(20):
+            sigma_n = sigma0 + alpha1*d
+            fn = self.fun(sigma_n, Y, W, Pij)
+            if fn < f + sigma * alpha1 * np.dot(g.T, d):
+                break
+            alpha1 = alpha1 * 0.1
+        return alpha1
+
+    # 非线性共轭梯度算法框架
+    def nonlinear_cg(self, sigma0, Y, W, Pij, searching, beta_para):
+        print('---------BEGIN---------')
+        start = time.time()
+        x_old = sigma0
+        g_old = self.gfun(x_old, Y, W, Pij)
+        # print("1:", g_old)
+        d_old = -g_old
+        f_list = []
+        for k in range(self.kmax):
+            f_old = self.fun(x_old, Y, W, Pij)
+            print("当前残差函数值:", f_old)
+            if k % 100 == 0:
+                print(f_old)
+            f_list.append(f_old[0])
+            g_old_norm = np.linalg.norm(g_old, 2)
+            print('当前迭代第{}步,当前精度值{:.8f}'.format(k, g_old_norm))
+            if g_old_norm < self.eps:
+                break
+            alpha = searching(x_old, Y, W, Pij, d_old, g_old, f_old)
+            # 更新 x
+            x_new = x_old + alpha * d_old
+            # 计算当前迭代点的梯度
+            g_new = self.gfun(x_new, Y, W, Pij)
+            beta = beta_para(g_old, g_new)
+            d_new = -g_new + beta * d_old
+
+            #更新参数
+            d_old = d_new
+            g_old = g_new
+            x_old = x_new
+        end = time.time()
+        time_use = end - start
+        return x_new, f_list, k, time_use
+
+    # 算法主框架：
+    def main(self):
+        nlcg_x1, nlcg_f1, nlcg_k1, nlcg_time1 = self.nonlinear_cg(self.sigma0, self.Y_all, self.W, self.Pij, \
+                                                                  self.Armijo, self.FR)
+
+        print("最优参数为：", self.SigmaReshape(nlcg_x1))
+        mu, beta, gamma, alpha = self.SigmaReshape(nlcg_x1)
+        print("观测概率为：", self.P_Y_S_fun(mu, beta, gamma, alpha))
+        data_df = pd.DataFrame(self.P_Y_S_fun(mu, beta, gamma, alpha))  # 关键1，将ndarray格式转换为DataFrame
+        # 更改表的索引
+        data_df.columns = ['S1', 'S2', 'S3', 'S4']  # 将第一行的0,1,2,...,9变成A,B,C,...,J
+        data_df.index = ['Y1', 'Y2', 'Y3', 'Y4']
+
+        # 将文件写入excel表格中
+        writer = pd.ExcelWriter('P_Y_S.xlsx')  # 关键2，创建名称为hhh的excel表格
+        data_df.to_excel(writer, 'page_1',
+                         float_format='%.5f')  # 关键3，float_format 控制精度，将data_df写到hhh表格的第一页中。若多个文件，可以在page_2中写入
+        writer.save()
+        print('“Armijo&FR”最优的目标函数值为{:.2f},使用时间: {:.2f}s'.format(nlcg_f1[-1], nlcg_time1))
+
+        plt.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体 SimHei为黑体
+        plt.rcParams['axes.unicode_minus'] = False
+        plt.plot(range(nlcg_k1 + 1), nlcg_f1, 'r', markersize=2, linewidth=2, label='强Wolfe+FR')
+        plt.legend()
+        plt.xlabel("迭代次数")
+        plt.ylabel("目标函数值")
+        plt.title("非线性共轭梯度迭代过程")
+        plt.savefig("./figure/非线性共轭梯度法rand.png")
+        plt.show()
+
+if __name__ == '__main__':
+    NCG1 = NCG()
+    NCG1.main()
+\end{lstlisting}
+
+\section{模拟退火$(SA)$算法$python$代码}
+%\begin{minted}[linenos]{c}
+\begin{lstlisting}
+import random
+import matplotlib.pyplot as plt
+import numpy as np
+import math
+import pandas as pd
+
+num_city=30#城市总数
+initial_t=120#初始温度
+lowest_t=0.001#最低温度
+M=150#当连续多次都不接受新的状态，开始改变温度
+iteration=500#设置迭代次数
+color = ['blue','red','green','orange','cyan','yellow']
+
+location=np.loadtxt('city_location.txt')
+
+#==========================================
+#对称矩阵，两个城市之间的距离
+def distance_p2p_mat():
+    dis_mat=[]
+    for i in range(30):
+        dis_mat_each=[]
+        for j in range(30):
+            dis=math.sqrt(pow(location[i][0]-location[j][0],2)+pow(location[i][1]-location[j][1],2))
+            dis_mat_each.append(dis)
+        dis_mat.append(dis_mat_each)
+   # print(dis_mat)
+    return dis_mat
+
+#计算所有路径对应的距离
+def cal_newpath(dis_mat,path):
+    dis=0
+    for j in range(num_city-1):
+        dis=dis_mat[path[j]][path[j+1]]+dis
+    dis=dis_mat[path[29]][path[0]]+dis#回家
+    return dis
+for i_record in range(6):
+    #==========================================
+    #点对点距离矩阵
+    dis_mat=distance_p2p_mat()
+    #初始路径
+    path=list(range(30))
+    #初始距离
+    dis=cal_newpath(dis_mat,path)
+    #初始温度
+    t_current=initial_t
+    dis_min_record = []
+    path_min_record = []
+
+    while (t_current>lowest_t):#外循环，改变温度
+        count_m=0#M的计数
+        count_iter=0#迭代次数计数
+        while (count_m<M and count_iter<iteration):#内循环，连续多次不接受新的状态或者是迭代多次,跳出内循环
+            i=0
+            j=0
+            while(i==j):#防止随机了同一城市
+                i=random.randint(1,29)
+                j=random.randint(1,29)
+            path_new=path.copy()
+            path_new[i],path_new[j]=path_new[j],path_new[i]#任意交换两个城市的位置,产生新解
+            #计算新解的距离
+            dis_new=cal_newpath(dis_mat,path_new)
+            #求差
+            dis_delta=dis_new-dis
+            #取0-1浮点随机数
+            rand=random.random()
+            #计算指数函数的值
+            exp_d=math.exp(-dis_delta/t_current)
+            #选择
+            if dis_delta<0:
+                path=path_new
+                dis=dis_new
+            elif exp_d>rand:
+                path=path_new
+                dis=dis_new
+            else:
+                count_m=count_m+1
+            count_iter=count_iter+1
+            dis_min_record.append(dis)
+            path_min_record.append(path)
+            # print('0最短距离：', dis_min)
+            # print('0最短路径：', path_min)
+        t_current=0.99*t_current#改变温度
+    #外循环结束
+    dis_min_test=pd.DataFrame(columns=['Y'],data=dis_min_record)
+    dis_min_test.to_csv("./SAdis_record0"+str(i_record)+".csv")
+    x_record = np.array(range(0, len(dis_min_test['Y']), 1))
+    dis_min_test_scatter = dis_min_test['Y']
+    plt.scatter(x_record, dis_min_test_scatter, s=0.05, c=color[i_record], alpha=1)
+    dis_min=dis
+    path_min=path
+    print('最短距离：',dis_min)
+    print('最短路径：',path_min)
+plt.xlabel("iteration(SA)")
+plt.ylabel("length(Km)")
+plt.legend(['1','2','3','4','5','6'])
+plt.savefig(r'./SAlength_six_maxalpha.png', dpi=300)
+plt.show()
+\end{lstlisting}
+%\end{minted}
+\section{遗传$(GA)$算法$python$代码}
+\begin{lstlisting}
+import random
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import pandas as pd
+num_city=30#城市总数0-29
+num_total=100#随机生成的初始解的总数
+copy_num=70#保留的解的个数
+cross_num=20#交叉解的个数
+var_num=10#变异解的个数
+color = ['blue','red','green','orange','cyan','yellow']
+location=np.loadtxt('city_location.txt')
+#print(location)
+
+#随机生成初始解[[],[],[]...]
+def generate_initial():
+    initial=[]
+    city=list(range(num_city))
+    for i in range(num_total):
+        random.shuffle(city)
+        p=city.copy()
+        while (p in initial):
+            #print('2333')#随机了一个重复的解
+            random.shuffle(city)
+            p=city.copy()
+        initial.append(p)
+    return initial
+
+#对称矩阵，两个城市之间的距离
+def distance_p2p_mat():
+    dis_mat=[]
+    for i in range(30):
+        dis_mat_each=[]
+        for j in range(30):
+            dis=math.sqrt(pow(location[i][0]-location[j][0],2)+pow(location[i][1]-location[j][1],2))
+            dis_mat_each.append(dis)
+        dis_mat.append(dis_mat_each)
+   # print(dis_mat)
+    return dis_mat
+
+#目标函数计算,适应度计算，中间计算。适应度为1/总距离*10000
+def dis_adp_total(dis_mat,initial):
+    dis_adp=[]
+#    dis_test=[]   
+    for i in range(num_total):
+        dis=0
+        for j in range(num_city-1):
+            dis=dis_mat[initial[i][j]][initial[i][j+1]]+dis
+        dis=dis_mat[initial[i][29]][initial[i][0]]+dis#回家
+#        dis_test.append(dis)        
+        dis_adp_each= 10000.0/dis
+        dis_adp.append(dis_adp_each)
+#    print(dis_test)
+    return dis_adp
+
+def choose_fromlast(dis_adp,answer_source):
+    mid_adp=[]
+    mid_adp_each=0
+    for i in range(num_total):
+        mid_adp_each=dis_adp[i]+mid_adp_each
+        mid_adp.append(mid_adp_each)
+   # print(mid_adp)
+    #产生0-mid_adp[num_total-1]之间的随机数
+    #选择n-1<随机数<n的那个n的解,保留
+    copy_ans=[]
+    for p in range(copy_num):
+        rand=random.uniform(0,mid_adp[num_total-1])#产生随机数
+       # print(rand)
+       # print(p)
+        for j in range(num_total):
+            if (rand<mid_adp[j]):#查找位置
+                copy_ans.append(answer_source[j])
+                break
+            else:
+                continue
+    return copy_ans
+
+#随机选择保留下来的70中的25个进行交叉
+def cross_pronew(copy_ans):
+    for i in range(cross_num):
+        which=random.randint(0,copy_num-1)#选择对那个解交叉
+        cross_list=copy_ans[which].copy()
+        while (cross_list in copy_ans):
+            p=random.randint(0,num_city-1)
+            q=random.randint(0,num_city-1)
+            cross_list[p],cross_list[q]=cross_list[q],cross_list[p]#第一次交换位置
+            m=random.randint(0,num_city-1)
+            n=random.randint(0,num_city-1)
+            cross_list[m],cross_list[n]=cross_list[n],cross_list[m]#第二次交换位置            
+        copy_ans.append(cross_list)
+    cross_ans=copy_ans.copy()
+    return cross_ans
+
+#随机选择那95中的5个进行变异
+def var_pronew(cross_ans):
+    for i in range(var_num):
+        which=random.randint(0,copy_num+cross_num-1)#选择对那个解交叉
+        var_list=cross_ans[which].copy()
+        while (var_list in cross_ans):
+            p=random.randint(0,num_city-1)
+            q=random.randint(0,num_city-1)
+            var_list[p],var_list[q]=var_list[q],var_list[p]#交换位置
+        cross_ans.append(var_list)
+    var_ans=cross_ans.copy()
+    return var_ans
+
+for i_record in range(6):
+    dis_min_record = []
+    #path_min_record = []
+    answer_source=generate_initial()
+    dis_mat=distance_p2p_mat()
+    #print(dis_mat)
+    dis_adp=dis_adp_total(dis_mat,answer_source)
+    adp_max_new=max(dis_adp)
+    if (max(dis_adp)>10000/700):
+        print('找到的最近距离是：',max(dis_adp))
+
+    else:
+        print('哎呀没找到，我再找找~')
+        answer_new=answer_source
+        dis_adp_new=dis_adp
+        i_0 = 0
+        while(adp_max_new<=10000/700):
+            copy_answer=choose_fromlast(dis_adp_new,answer_new)
+            cross_answer=cross_pronew(copy_answer)
+            var_answer=var_pronew(cross_answer)
+            answer_new=var_answer.copy()
+            dis_adp_new=dis_adp_total(dis_mat,answer_new)
+            adp_max_new=max(dis_adp_new)
+            dis_min=10000/adp_max_new
+            #print('这次是：',dis_min)
+            dis_min_record.append(dis_min)
+            #if i_0>=200000:break
+            #else: i_0+=1
+
+        dis_min=10000/adp_max_new
+        print('终于找到你啦：',dis_min)
+    dis_min_test = pd.DataFrame(columns=['Y'], data=dis_min_record)
+    dis_min_test.to_csv("./GAdis_record0" + str(i_record) + ".csv")
+    x_record = np.array(range(0, len(dis_min_test['Y']), 1))
+    dis_min_test_scatter = dis_min_test['Y']
+    plt.scatter(x_record, dis_min_test_scatter, s=0.05, c=color[i_record], alpha=1)
+    print('最短距离：', dis_min)
+    #print('最短路径：', path_min)
+plt.xlabel("iteration(GA)")
+plt.ylabel("length(Km)")
+plt.legend(['1', '2', '3', '4', '5', '6'])
+plt.savefig(r'./GAlength_six_maxalpha.png', dpi=300)
+plt.show()
+
+
+\end{lstlisting}
+\section{蚁群$(ACO)$算法$python$代码}
+\begin{lstlisting}
+import random
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import pandas as pd
+
+location=np.loadtxt('city_location.txt')
+num_ant=200 #蚂蚁个数
+num_city=30 #城市个数
+alpha=1 #信息素影响因子
+beta=1  #期望影响因子
+info=0.1 #信息素的挥发率
+Q=1 #常数
+
+count_iter = 0
+iter_max = 70
+color = ['blue','red','green','orange','cyan','yellow']
+#dis_new=1000
+#==========================================
+#对称矩阵，两个城市之间的距离
+def distance_p2p_mat():
+    dis_mat=[]
+    for i in range(num_city):
+        dis_mat_each=[]
+        for j in range(num_city):
+            dis=math.sqrt(pow(location[i][0]-location[j][0],2)+pow(location[i][1]-location[j][1],2))
+            dis_mat_each.append(dis)
+        dis_mat.append(dis_mat_each)
+   # print(dis_mat)
+    return dis_mat
+
+#计算所有路径对应的距离
+def cal_newpath(dis_mat,path_new):
+    dis_list=[]
+    for each in path_new:
+        dis=0
+        for j in range(num_city-1):
+            dis=dis_mat[each[j]][each[j+1]]+dis
+        dis=dis_mat[each[num_city-1]][each[0]]+dis#回家
+        dis_list.append(dis)
+    return dis_list
+
+#==========================================
+for i_record in range(6):
+    #点对点距离矩阵
+    dis_list=distance_p2p_mat()
+    dis_mat=np.array(dis_list)#转为矩阵
+    #期望矩阵
+    e_mat_init=1.0/(dis_mat+np.diag([10000]*num_city))#加对角阵是因为除数不能是0
+    diag=np.diag([1.0/10000]*num_city)
+    e_mat=e_mat_init-diag#还是把对角元素变成0
+    #初始化每条边的信息素浓度，全1矩阵
+    pheromone_mat=np.ones((num_city,num_city))
+    #初始化每只蚂蚁路径，都从0城市出发
+    path_mat=np.zeros((num_ant,num_city)).astype(int)
+    dis_min_record = []
+    path_min_record = []
+
+    #while dis_new>400:
+    while count_iter < iter_max:
+        for ant in range(num_ant):
+            visit=0#都从0城市出发
+            unvisit_list=list(range(1,30))#未访问的城市
+            for j in range(1,num_city):
+                #轮盘法选择下一个城市
+                trans_list=[]
+                tran_sum=0
+                trans=0
+                for k in range(len(unvisit_list)):
+                    trans +=np.power(pheromone_mat[visit][unvisit_list[k]],alpha)*np.power(e_mat[visit][unvisit_list[k]],beta)
+                    trans_list.append(trans)
+                    tran_sum =trans
+
+                rand=random.uniform(0,tran_sum)#产生随机数
+
+                for t in range(len(trans_list)):
+                    if(rand <= trans_list[t]):
+                        visit_next=unvisit_list[t]
+
+
+                        break
+                    else:
+                        continue
+                path_mat[ant,j]=visit_next#填路径矩阵
+
+                unvisit_list.remove(visit_next)#更新
+                visit=visit_next#更新
+
+        #所有蚂蚁的路径表填满之后，算每只蚂蚁的总距离
+        dis_allant_list=cal_newpath(dis_mat,path_mat)
+
+        #每次迭代更新最短距离和最短路径
+        if count_iter == 0:
+            dis_new=min(dis_allant_list)
+            path_new=path_mat[dis_allant_list.index(dis_new)].copy()
+        else:
+            if min(dis_allant_list) < dis_new:
+                dis_new=min(dis_allant_list)
+                path_new=path_mat[dis_allant_list.index(dis_new)].copy()
+        #print(dis_new)
+        dis_min_record.append(dis_new)
+        path_min_record.append(path_new)
+        # 更新信息素矩阵
+        pheromone_change=np.zeros((num_city,num_city))
+        for i in range(num_ant):
+            for j in range(num_city-1):
+                pheromone_change[path_mat[i,j]][path_mat[i,j+1]] += Q/dis_mat[path_mat[i,j]][path_mat[i,j+1]]
+            pheromone_change[path_mat[i,num_city-1]][path_mat[i,0]] += Q/dis_mat[path_mat[i,num_city-1]][path_mat[i,0]]
+        pheromone_mat=(1-info)*pheromone_mat+pheromone_change
+        count_iter += 1 #迭代计数+1，进入下一次
+
+    #print('最短距离：',dis_new)
+    #print('最短路径：',path_new)
+    dis_min_test = pd.DataFrame(columns=['Y'], data=dis_min_record)
+    dis_min_test.to_csv("./ACOdis_record0" + str(i_record) + ".csv")
+    x_record = np.array(range(0, len(dis_min_test['Y']), 1))
+    dis_min_test_scatter = dis_min_test['Y']
+    plt.plot(x_record, dis_min_test_scatter, c=color[i_record], alpha=1)
+    dis_min = dis_new
+    path_min = path_new
+    print('最短距离：', dis_min)
+    print('最短路径：', path_min)
+plt.xlabel("iteration(ACO)")
+plt.ylabel("length(Km)")
+plt.legend(['1', '2', '3', '4', '5', '6'])
+plt.savefig(r'./ACOlength_six_maxalpha.png', dpi=300)
+plt.show()
+\end{lstlisting}
+
+\section{禁忌搜索$(TS)$算法$python$代码}
+\begin{lstlisting}
+import random
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import pandas as pd
+num_city=30#城市总数
+table_len=20#禁忌表长度
+location=np.loadtxt('city_location.txt')
+taboo_table=[]
+color = ['blue','red','green','orange','cyan','yellow']
+
+#==========================================
+#对称矩阵，两个城市之间的距离
+def distance_p2p_mat():
+    dis_mat=[]
+    for i in range(30):
+        dis_mat_each=[]
+        for j in range(30):
+            dis=math.sqrt(pow(location[i][0]-location[j][0],2)+pow(location[i][1]-location[j][1],2))
+            dis_mat_each.append(dis)
+        dis_mat.append(dis_mat_each)
+   # print(dis_mat)
+    return dis_mat
+
+#计算所有路径对应的距离
+def cal_newpath(dis_mat,path_new):
+    dis_list=[]
+    for each in path_new:
+        dis=0
+        for j in range(num_city-1):
+            dis=dis_mat[each[j]][each[j+1]]+dis
+        dis=dis_mat[each[29]][each[0]]+dis#回家
+        dis_list.append(dis)
+    return dis_list
+
+#寻找上一个最优路径对应的所有领域解
+def find_newpath(path_best):
+    path_new=[]
+    for i in range(1,num_city-1):
+        for j in range(i+1,num_city):
+            path=path_best.copy()
+            path[i],path[j]=path[j],path[i]
+            path_new.append(path)
+    return path_new
+
+
+#==========================================
+for i_record in range(6):
+    #点对点距离矩阵
+    dis_mat=distance_p2p_mat()
+
+    #设置初始解
+    path_initial=[]
+    initial=list(range(30))
+    path_initial.append(initial)
+    #print(path_initial)
+
+    #加入禁忌表
+    taboo_table.append(initial)
+
+    #求初始解的路径长度
+    dis_list=cal_newpath(dis_mat,path_initial)
+    dis_best=min(dis_list)#最短距离
+    path_best=path_initial[dis_list.index(dis_best)]#对应的最短路径方案
+    #print(path_best)
+
+    #初始期望
+    expect_dis=dis_best
+    expect_best=path_best
+
+    #记录值
+    dis_min_record = []
+    path_min_record = []
+    for iter in range(50):#迭代
+        #寻找全领域新解
+        path_new=find_newpath(path_best)
+        #print(path_new)
+
+        #求出所有新解的路径长度
+        dis_new=cal_newpath(dis_mat,path_new)
+        #print(dis_new)
+
+        #选择路径
+        dis_best=min(dis_new)#最短距离
+        #print(dis_best)
+        path_best=path_new[dis_new.index(dis_best)]#对应的最短路径方案
+        dis_min_record.append(dis_best)
+        path_min_record.append(path_best)
+        if dis_best < expect_dis:#最短的<期望
+            expect_dis=dis_best
+            expect_best=path_best#更新两个期望
+            if path_best in taboo_table:
+                taboo_table.remove(path_best)
+                taboo_table.append(path_best)
+            else:
+                taboo_table.append(path_best)
+        else:#最短的还是不能改善期望
+            if path_best in taboo_table:#在禁忌表里
+                dis_new.remove(dis_best)
+                path_new.remove(path_best)
+                dis_best=min(dis_new)#求不在禁忌表中的最短距离
+                path_best=path_new[dis_new.index(dis_best)]#对应的最短路径方案
+                taboo_table.append(path_best)
+            else:#不在禁忌表
+                taboo_table.append(path_best)
+        if len(taboo_table)>=table_len:
+            del taboo_table[0]
+    dis_min_test = pd.DataFrame(columns=['Y'], data=dis_min_record)
+    dis_min_test.to_csv("./TS_dis_record0" + str(i_record) + ".csv")
+    x_record = np.array(range(0, len(dis_min_test['Y']), 1))
+    dis_min_test_scatter = dis_min_test['Y']
+    plt.plot(x_record, dis_min_test_scatter, c=color[i_record], alpha=1)
+
+    print('最短距离',expect_dis)
+    print('最短路径：',expect_best)
+plt.xlabel("iteration(TS)")
+plt.ylabel("length(Km)")
+plt.legend(['1','2','3','4','5','6'])
+plt.savefig(r'./TSlength_six_maxalpha.png', dpi=300)
+plt.show()
+\end{lstlisting}
+% \end{appendixs}
+
+
+
+
+
+
+
+
+
+

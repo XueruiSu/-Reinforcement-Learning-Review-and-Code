@@ -1,0 +1,26 @@
+%!TEX root = ../csuthesis_main.tex
+\keywordsen{optimization theory\ \ Optimization algorithm\ \ artificial intelligence\ \ Convex optimization\ \ heuristic algorithm}
+\begin{abstracten}
+
+Optimization theory, statistical analysis and simulation are the three basic methods and techniques of mathematical modeling. When applying mathematical knowledge to solve practical problems, optimization theory is a very active research discovery and branch. It has developed rapidly since the second half of the last century. It has a very perfect knowledge system. For different problems, new theories and methods have been put forward.
+
+
+
+The author notes that since the birth of optimization theory, it has been widely used in various fields, especially in the field of artificial intelligence, and has played a vital role in control, prediction, search, estimation and other tasks. Based on the knowledge learned this semester, from the perspective of optimization, this paper combs the design and use of optimization algorithms in the three task scenarios of control, prediction and search in the field of artificial intelligence. It is not too much to say that the optimization problem form plays a role in these three types of task scenarios, either as an important part of the algorithm or as a guide to simpler approximation methods.
+
+
+
+I systematically combs the knowledge of optimization. The related basic concepts are explained. The first-order, second-order, constrained and unconstrained optimality conditions are described. The algorithm framework and theoretical properties of several learned algorithms are listed. Then it describes the design and use of optimization algorithm under three kinds of task scenarios: control, prediction and search. The prediction algorithm based on HMM model is the original content of the author (preparing to publish papers). If there is any deficiency, please correct it.
+
+
+Firstly, in the current research on reinforcement learning in the control field, the basic goal is to solve the optimal value function and optimal strategy through \textbf{dynamic programming}, \textbf{time difference} and \textbf{policy gradient} within the framework of Markov decision process, based on \textbf{Bellman optimal equation}. Since both the strategy function and the value function are complex nonconvex functions, which cannot be solved directly, the framework of reinforcement learning itself is put aside. No matter what approximate method is adopted in theoretical analysis to solve the above nonconvex functions, it needs to be solved with the help of optimization algorithm when it is implemented. This paper mainly introduces how to use the bellman optimal equation to solve the optimal value function and optimal strategy, and transform them into the form of optimization problems. At the same time, it briefly introduces several major algorithms (Q-Learning、DQN、AC、 TRPO、 PPO、 etc.) that have been produced since the birth of reinforcement learning to 2018, and also points out the embodiment of optimization problems in algorithms, so as to illustrate the importance of optimization in this field.
+
+
+
+Secondly, this paper introduces a kind of HMM model to predict the behavior of live broadcast room. However, with the increase of parameters and state space, the method of estimating model parameters by maximum likelihood is not feasible. So the author transforms the problem into an optimization problem under this framework, and uses the nonlinear conjugate gradient method to solve it, and has achieved good results on the actual data.
+
+
+
+Thirdly, heuristic algorithms are frequently used in various modeling competitions. These algorithms are different from the traditional optimization algorithms. Because of their intelligence, this algorithm is widely used in search task scenarios. In this paper, several heuristic optimization algorithms are introduced theoretically and applied to the \textbf{traveling salesman problem} (\textbf{TSP}). Traditional search algorithms are ill conditioned for this problem, but the four heuristic algorithms introduced in this paper can solve this problem efficiently.
+
+\end{abstracten}
